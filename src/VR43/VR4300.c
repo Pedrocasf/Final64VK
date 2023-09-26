@@ -14,11 +14,12 @@ const uint32_t RSP_IMEM_ADDR = (64 * MiB_SIZE) + RSP_DMEM_LEN;
 const uint32_t RSP_IMEM_LEN = 4 * KiB_SIZE;
 const uint32_t RAM_ADDR = 0;
 const uint32_t RAM_LEN = 8 * MiB_SIZE;
-const uint32_t COP_COUNT = 3;
 const uint32_t GPRS_COUNT = 32;
-const uint32_t FGPRS_COUNT = 32;
+const uint32_t COP_COUNT = 3;
+const uint32_t COP0_SYS_REG_COUNT = 32;
+const uint32_t COP1_FPU_FPGPRS_COUNT = 32;
+const uint32_t COP2_RCP_GPRS_COUNT = 32;
 static FILE *rom_ptr = NULL;
-static int rom_fd = MAP_FAILED;
 static uint32_t rom_size = 0;
 static uintptr_t io_addr = 0;
 static uintptr_t cop_addr = 0;
@@ -56,41 +57,99 @@ void build_vm_state(VM_state **state, char *rom_name) {
     fprintf(stderr, "Could not map GPRs \n");
     exit(errno);
   }
-  //simulate the PIF ROM
-  (*state)->gprs[11] = 0xFFFFFFFFA4000040;
-  (*state)->gprs[20] = 0x0000000000000001;
-  (*state)->gprs[22] = 0x000000000000003F;
-  (*state)->gprs[29] = 0xFFFFFFFFA4001FF0;
-  // mmap Floating-point General Pourpose Registers
-  (*state)->fgprs = (double *)mmap(NULL, sizeof(double) * FGPRS_COUNT,
-                                   PROT_READ | PROT_WRITE | PROT_EXEC,
-                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if ((*state)->fgprs == MAP_FAILED) {
-    fprintf(stderr, "Could not map FGPRs \n");
-    exit(errno);
-  }
-  // mmap Coprocessors
+
+  // mmap Coprocessors slots
   (*state)->cops =
       mmap(NULL, COP_COUNT * sizeof(COP_Generic), PROT_READ | PROT_WRITE,
            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  // Check if COP mapping succeeded
+  // Check if COP slots mapping succeeded
   if ((*state)->cops == MAP_FAILED) {
     fprintf(stderr, "Could not map COPs memory\n");
     exit(errno);
   }
+  // mmap Coprocessor 0 System
   (*state)->cops[0].cop = mmap(NULL, sizeof(COP0_SYS), PROT_READ | PROT_WRITE,
            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  
+  // Check if COP0 SYS mapping succeeded
+  if ((*state)->cops[0].cop == MAP_FAILED) {
+    fprintf(stderr, "Could not map COP0 SYS memory\n");
+    exit(errno);
+  }
+
+  // get COP0 SYS generic void poinnter
+  void *cop0 = (*state)->cops[0].cop;
+
+  // mmap COP0 SYS registers
+  ((COP0_SYS*)cop0)->sysregs = mmap(NULL, COP0_SYS_REG_COUNT * sizeof(uint32_t), PROT_READ | PROT_WRITE,
+           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  // Check if COP0 SYS registers mapping succeeded
+  if (((COP0_SYS*)cop0)->sysregs == MAP_FAILED) {
+    fprintf(stderr, "Could not map COP0 SYS memory\n");
+    exit(errno);
+  }
+  // mmap Coprocessor 1 Floating Point Unit
+  (*state)->cops[1].cop = mmap(NULL, sizeof(COP1_FPU), PROT_READ | PROT_WRITE,
+           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    
+  // Check if COP1 FPU mapping succeeded
+  if ((*state)->cops[1].cop == MAP_FAILED) {
+    fprintf(stderr, "Could not map COP1 FPU memory\n");
+    exit(errno);
+  }
+
+  // get COP1 FPU generic void poinnter
+  void *cop1 = (*state)->cops[1].cop;
+
+  // mmap Floating-point General Pourpose Registers
+   ((COP1_FPU*)cop1)->fpgprs = (double *)mmap(NULL, sizeof(double) * COP1_FPU_FPGPRS_COUNT,
+                                   PROT_READ | PROT_WRITE | PROT_EXEC,
+                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+  // Check if COP1 FPU registers mapping succeeded
+  if ( ((COP1_FPU*)cop1)->fpgprs == MAP_FAILED) {
+    fprintf(stderr, "Could not map FPU FPGPRs \n");
+    exit(errno);
+  }
+
+  // mmap Coprocessor 2 Reality Co-Processor
+  (*state)->cops[2].cop = mmap(NULL, sizeof(COP2_RCP), PROT_READ | PROT_WRITE,
+           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  
+  // Check if COP2 RCP mapping succeeded
+  if ((*state)->cops[2].cop == MAP_FAILED) {
+    fprintf(stderr, "Could not map COP2 RCP memory\n");
+    exit(errno);
+  }
+
+ // get COP2 RCP generic void poinnter
+  void *cop2 = (*state)->cops[2].cop;
+
+  // mmap RCP General Pourpose Registers
+   ((COP2_RCP*)cop2)->rsp_gprs = (Uint32 *)mmap(NULL, sizeof(uint32_t) * COP2_RCP_GPRS_COUNT,
+                                   PROT_READ | PROT_WRITE | PROT_EXEC,
+                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+  // Check if COP2 RCP registers mapping succeeded
+  if ( ((COP1_FPU*)cop1)->fpgprs == MAP_FAILED) {
+    fprintf(stderr, "Could not map FPU FPGPRs \n");
+    exit(errno);
+  }
+
+
   // Map main memory
   (*state)->memory =
-      mmap(NULL, 2 * GiB_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      mmap(NULL, 4 * GiB_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   // Check if main memory mapping succeded
   if ((*state)->memory == MAP_FAILED) {
     fprintf(stderr, "Could not map memory\n");
     exit(errno);
   }
-  cop_addr = (uintptr_t)(*state)->cops;
 
+  // set adequate permissionns for RDRAM physical memory region
+  int mprot = mprotect((*state)->memory, 8 * MiB_SIZE, PROT_READ | PROT_WRITE |PROT_EXEC);
+  
   // Open rom File
   rom_ptr = fopen(rom_name, "rb");
 
@@ -109,21 +168,28 @@ void build_vm_state(VM_state **state, char *rom_name) {
     exit(errno);
   }
   // open rom File Descriptor
-  int rom_fd = open(rom_name, O_RDONLY);
+  (*state)->rom_fd = open(rom_name, O_RDONLY);
 
   // Check if rom file descriptor is opened
-  if (rom_fd == -1) {
+  if ((*state)->rom_fd == -1) {
     fprintf(stderr, "Could not open rom file descriptor '%s'\n", rom_name);
     exit(errno);
   }
-  // Map rom file to somwwhere in memory
-  uint8_t *rom_mm = mmap(NULL, rom_size, PROT_READ, MAP_PRIVATE, rom_fd, 0L);
+  // Map rom file to somwwhere in host memory
+  (*state)->rom = mmap(NULL, rom_size, PROT_READ, MAP_PRIVATE, (*state)->rom_fd, 0L);
   // Check if rom mapping succeeded
-  if (rom_mm == MAP_FAILED) {
+  if ((*state)->rom == MAP_FAILED) {
     fprintf(stderr, "Could not map rom\n");
     exit(errno);
   }
-
+  //simulate the PIF ROM
+  (*state)->gprs[11] = 0xFFFFFFFFA4000040;
+  (*state)->gprs[20] = 0x0000000000000001;
+  (*state)->gprs[22] = 0x000000000000003F;
+  (*state)->gprs[29] = 0xFFFFFFFFA4001FF0;
+  (*state)->memory
+  memcpy();
+  fclose(rom_ptr);
   return;
 }
 uint8_t rearrange(uint32_t instruction) {

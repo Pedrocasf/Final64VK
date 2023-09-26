@@ -29,12 +29,20 @@ typedef struct COP_Generic {
 typedef struct COP0_SYS{
   uint32_t *sysregs;
 } COP0_SYS;
+typedef struct COP1_FPU{
+  double *fpgprs;
+}COP1_FPU;
+typedef struct COP2_RCP{
+  uint32_t *rsp_gprs;
+}COP2_RCP;
+
 typedef struct VM_state {
   uint32_t *pc;
   uint64_t *gprs;
-  double *fgprs;
   uint8_t *memory;
   COP_Generic *cops;
+  int rom_fd;
+  uint8_t *rom;
 } VM_state;
 
 void build_vm_state(VM_state **state, char *rom_name);
