@@ -8,14 +8,17 @@ const uint32_t KiB_SIZE = 1024;
 const uint32_t MiB_SIZE = 1024 * KiB_SIZE;
 const uint32_t GiB_SIZE = 1024 * MiB_SIZE;
 const uint32_t MAX_ROM_SIZE = 64 * MiB_SIZE;
+const uint32_t RSP_DMEM_ADDR = 64 * MiB_SIZE;
+const uint32_t RSP_DMEM_LEN = 4 * KiB_SIZE;
+const uint32_t RSP_IMEM_ADDR = (64 * MiB_SIZE) + RSP_DMEM_LEN;
+const uint32_t RSP_IMEM_LEN = 4 * KiB_SIZE;
 const uint32_t RAM_ADDR = 0;
 const uint32_t RAM_LEN = 8 * MiB_SIZE;
-const uint32_t ROM_ADDR = 512 * MiB_SIZE;
-const uint32_t ROM_LEN = MiB_SIZE;
-const uint32_t PRG_OFFSET = 0;
-const uint32_t COP_COUNT = 2;
+const uint32_t COP_COUNT = 3;
 const uint32_t GPRS_COUNT = 32;
 const uint32_t FGPRS_COUNT = 32;
+static FILE *rom_ptr = NULL;
+static int rom_fd = MAP_FAILED;
 static uint32_t rom_size = 0;
 static uintptr_t io_addr = 0;
 static uintptr_t cop_addr = 0;
@@ -53,6 +56,11 @@ void build_vm_state(VM_state **state, char *rom_name) {
     fprintf(stderr, "Could not map GPRs \n");
     exit(errno);
   }
+  //simulate the PIF ROM
+  (*state)->gprs[11] = 0xFFFFFFFFA4000040;
+  (*state)->gprs[20] = 0x0000000000000001;
+  (*state)->gprs[22] = 0x000000000000003F;
+  (*state)->gprs[29] = 0xFFFFFFFFA4001FF0;
   // mmap Floating-point General Pourpose Registers
   (*state)->fgprs = (double *)mmap(NULL, sizeof(double) * FGPRS_COUNT,
                                    PROT_READ | PROT_WRITE | PROT_EXEC,
@@ -61,15 +69,17 @@ void build_vm_state(VM_state **state, char *rom_name) {
     fprintf(stderr, "Could not map FGPRs \n");
     exit(errno);
   }
-  // mmap Control Status Registers
+  // mmap Coprocessors
   (*state)->cops =
       mmap(NULL, COP_COUNT * sizeof(COP_Generic), PROT_READ | PROT_WRITE,
            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  // Check if CSR mapping succeeded
+  // Check if COP mapping succeeded
   if ((*state)->cops == MAP_FAILED) {
     fprintf(stderr, "Could not map COPs memory\n");
     exit(errno);
   }
+  (*state)->cops[0].cop = mmap(NULL, sizeof(COP0_SYS), PROT_READ | PROT_WRITE,
+           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   // Map main memory
   (*state)->memory =
       mmap(NULL, 2 * GiB_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -82,7 +92,6 @@ void build_vm_state(VM_state **state, char *rom_name) {
   cop_addr = (uintptr_t)(*state)->cops;
 
   // Open rom File
-  FILE *rom_ptr = NULL;
   rom_ptr = fopen(rom_name, "rb");
 
   // Check if rom file is opened
@@ -115,9 +124,6 @@ void build_vm_state(VM_state **state, char *rom_name) {
     exit(errno);
   }
 
-  close(rom_fd);
-  fclose(rom_ptr);
-
   return;
 }
 uint8_t rearrange(uint32_t instruction) {
@@ -146,13 +152,15 @@ int32_t j_imm(uint32_t instruction) {
 }
 bool funct7(uint32_t instruction) { return (instruction & 0x40000000) >> 31; }
 static inline __attribute__((always_inline)) void
-fetch_decode(uint32_t *pc, uint32_t *x, uint8_t *mem, uint32_t *csr);
-void HALT(uint32_t *pc, uint32_t *x, uint8_t *mem, uint32_t *csr) {
+fetch_decode(VM_state *vm);
+void HALT(VM_state *vm) {
   printf("full instr %032bb %08hhX\n", *pc, *pc);
   uint8_t instr = rearrange(*pc);
   printf("rearranged instr %08bb %d \n", instr, instr);
   printf("HALTED at addr  %08llX\n", ((uint8_t *)pc - mem));
   munmap(mem, 2 * GiB_SIZE);
+  close(rom_fd);
+  fclose(rom_ptr);
   free(x);
   SDL_DestroyWindow(window_inner);
   SDL_Quit();
@@ -163,7 +171,7 @@ void catch_sigsegv(int sig, siginfo_t *info, void *ucontext) {
   // printf("\n Signal %d received", sig);
   uintptr_t addr = (uintptr_t)(void *)info->si_addr;
   if (addr > csr_addr && addr < (csr_addr + (CSR_COUNT * sizeof(uint32_t)))) {
-    fprintf(stderr, "Address %lX is in CSR space\n",
+    fprintf(stderr, "Address %lX is in COP space\n",
             (uintptr_t)((void *)info->si_addr - csr_addr));
   } else {
     // printf("\n at address %lx", addr);
@@ -190,6 +198,8 @@ void catch_sigsegv(int sig, siginfo_t *info, void *ucontext) {
       }
       break;
     default:
+      close(rom_fd);
+      fclose(rom_ptr);
       SDL_DestroyWindow(window_inner);
       SDL_Quit();
       fprintf(stderr, "Unknown write at io address %lx\n", io_addr);
@@ -207,7 +217,7 @@ void catch_sigsegv(int sig, siginfo_t *info, void *ucontext) {
 #error "only x86_64, arm64 and RISC-V64 supported"
 #endif
 }
-void (*decode_table[256])(uint32_t *pc, uint32_t *a, uint8_t *mem) = {
+void (*decode_table[256])(VM_state *VM) = {
     HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT,
     HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT,
     HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT,
@@ -231,12 +241,12 @@ void (*decode_table[256])(uint32_t *pc, uint32_t *a, uint8_t *mem) = {
     HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT,
     HALT, HALT, HALT, HALT};
 static inline __attribute__((always_inline)) void
-fetch_decode(uint32_t *pc, uint32_t *gprs, uint8_t *mem, uint32_t *cops) {
+fetch_decode(VM_state *vm) {
   // printf("full instr %032bb  %u", *pc, *pc);
   // printf("PC:%08llX INSTR:%08llX RE:%02llX\n", ((uint8_t *)pc - mem), *pc,
   //        rearrange(*pc));
-  *gprs = 0;
-  return (decode_table[rearrange(*pc)])(pc, gprs, mem, cops);
+  *(vm->gprs) = 0;
+  return (decode_table[rearrange(*(vm->pc))])(vm);
 }
 void begin(VM_state *state, SDL_Window *window) {
   // printf("begin vm execution");
@@ -253,5 +263,5 @@ void begin(VM_state *state, SDL_Window *window) {
   // printf("full instr %032bb  %08hhX\n", *state->pc, *state->pc);
   // uint8_t actual_instr = rearrange(*state->pc);
   // printf("rearranged instr %08bb\n", actual_instr);
-  fetch_decode(state->pc, state->x, state->memory, state->cops);
+  fetch_decode(state);
 }

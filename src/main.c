@@ -2,8 +2,8 @@
 #include <SDL2/SDL.h>
 #include <stdbool.h>
 #include <stdio.h>
-const int SCREEN_WIDTH = 128;
-const int SCREEN_HEIGHT = 128;
+const int SCREEN_WIDTH = 256;
+const int SCREEN_HEIGHT = 256;
 SDL_Window *window_outer = NULL;
 int main(int argc, char *argv[]) {
 

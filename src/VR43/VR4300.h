@@ -21,11 +21,14 @@
 #include <sys/mman.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
-typedef enum { COP0_SYS, COP1_FPU } CPU_COP_Kind;
+typedef enum { COP0_SYS, COP1_FPU, COP2_RCP } CPU_COP_Kind;
 typedef struct COP_Generic {
   void *cop;
   CPU_COP_Kind cpk;
 } COP_Generic;
+typedef struct COP0_SYS{
+  uint32_t *sysregs;
+} COP0_SYS;
 typedef struct VM_state {
   uint32_t *pc;
   uint64_t *gprs;
