@@ -21,7 +21,7 @@
 #include <sys/mman.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
-typedef enum { COP0_SYS, COP1_FPU, COP2_RCP } CPU_COP_Kind;
+typedef enum { COP0_SYS_E, COP1_FPU_E, COP2_RCP_E } CPU_COP_Kind;
 typedef struct COP_Generic {
   void *cop;
   CPU_COP_Kind cpk;

@@ -7,11 +7,14 @@ SDL_Window *window_inner = NULL;
 const uint32_t KiB_SIZE = 1024;
 const uint32_t MiB_SIZE = 1024 * KiB_SIZE;
 const uint32_t GiB_SIZE = 1024 * MiB_SIZE;
+const uint32_t RDRAM_SIZE = 8 * MiB_SIZE;
 const uint32_t MAX_ROM_SIZE = 64 * MiB_SIZE;
 const uint32_t RSP_DMEM_ADDR = 64 * MiB_SIZE;
 const uint32_t RSP_DMEM_LEN = 4 * KiB_SIZE;
 const uint32_t RSP_IMEM_ADDR = (64 * MiB_SIZE) + RSP_DMEM_LEN;
 const uint32_t RSP_IMEM_LEN = 4 * KiB_SIZE;
+const uint32_t HEADER_SIZE = 0x40;
+const uint32_t INITIAL_PC = 0xA4000000;
 const uint32_t RAM_ADDR = 0;
 const uint32_t RAM_LEN = 8 * MiB_SIZE;
 const uint32_t GPRS_COUNT = 32;
@@ -19,7 +22,7 @@ const uint32_t COP_COUNT = 3;
 const uint32_t COP0_SYS_REG_COUNT = 32;
 const uint32_t COP1_FPU_FPGPRS_COUNT = 32;
 const uint32_t COP2_RCP_GPRS_COUNT = 32;
-static FILE *rom_ptr = NULL;
+static uintptr_t memory_base_addr = 0;
 static uint32_t rom_size = 0;
 static uintptr_t io_addr = 0;
 static uintptr_t cop_addr = 0;
@@ -69,8 +72,8 @@ void build_vm_state(VM_state **state, char *rom_name) {
   }
   // mmap Coprocessor 0 System
   (*state)->cops[0].cop = mmap(NULL, sizeof(COP0_SYS), PROT_READ | PROT_WRITE,
-           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  
+                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
   // Check if COP0 SYS mapping succeeded
   if ((*state)->cops[0].cop == MAP_FAILED) {
     fprintf(stderr, "Could not map COP0 SYS memory\n");
@@ -81,17 +84,18 @@ void build_vm_state(VM_state **state, char *rom_name) {
   void *cop0 = (*state)->cops[0].cop;
 
   // mmap COP0 SYS registers
-  ((COP0_SYS*)cop0)->sysregs = mmap(NULL, COP0_SYS_REG_COUNT * sizeof(uint32_t), PROT_READ | PROT_WRITE,
+  ((COP0_SYS *)cop0)->sysregs =
+      mmap(NULL, COP0_SYS_REG_COUNT * sizeof(uint32_t), PROT_READ | PROT_WRITE,
            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   // Check if COP0 SYS registers mapping succeeded
-  if (((COP0_SYS*)cop0)->sysregs == MAP_FAILED) {
+  if (((COP0_SYS *)cop0)->sysregs == MAP_FAILED) {
     fprintf(stderr, "Could not map COP0 SYS memory\n");
     exit(errno);
   }
   // mmap Coprocessor 1 Floating Point Unit
   (*state)->cops[1].cop = mmap(NULL, sizeof(COP1_FPU), PROT_READ | PROT_WRITE,
-           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    
+                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
   // Check if COP1 FPU mapping succeeded
   if ((*state)->cops[1].cop == MAP_FAILED) {
     fprintf(stderr, "Could not map COP1 FPU memory\n");
@@ -102,44 +106,43 @@ void build_vm_state(VM_state **state, char *rom_name) {
   void *cop1 = (*state)->cops[1].cop;
 
   // mmap Floating-point General Pourpose Registers
-   ((COP1_FPU*)cop1)->fpgprs = (double *)mmap(NULL, sizeof(double) * COP1_FPU_FPGPRS_COUNT,
-                                   PROT_READ | PROT_WRITE | PROT_EXEC,
-                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ((COP1_FPU *)cop1)->fpgprs = (double *)mmap(
+      NULL, sizeof(double) * COP1_FPU_FPGPRS_COUNT,
+      PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   // Check if COP1 FPU registers mapping succeeded
-  if ( ((COP1_FPU*)cop1)->fpgprs == MAP_FAILED) {
+  if (((COP1_FPU *)cop1)->fpgprs == MAP_FAILED) {
     fprintf(stderr, "Could not map FPU FPGPRs \n");
     exit(errno);
   }
 
   // mmap Coprocessor 2 Reality Co-Processor
   (*state)->cops[2].cop = mmap(NULL, sizeof(COP2_RCP), PROT_READ | PROT_WRITE,
-           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  
+                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
   // Check if COP2 RCP mapping succeeded
   if ((*state)->cops[2].cop == MAP_FAILED) {
     fprintf(stderr, "Could not map COP2 RCP memory\n");
     exit(errno);
   }
 
- // get COP2 RCP generic void poinnter
+  // get COP2 RCP generic void poinnter
   void *cop2 = (*state)->cops[2].cop;
 
   // mmap RCP General Pourpose Registers
-   ((COP2_RCP*)cop2)->rsp_gprs = (Uint32 *)mmap(NULL, sizeof(uint32_t) * COP2_RCP_GPRS_COUNT,
-                                   PROT_READ | PROT_WRITE | PROT_EXEC,
-                                   MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ((COP2_RCP *)cop2)->rsp_gprs = (Uint32 *)mmap(
+      NULL, sizeof(uint32_t) * COP2_RCP_GPRS_COUNT,
+      PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   // Check if COP2 RCP registers mapping succeeded
-  if ( ((COP1_FPU*)cop1)->fpgprs == MAP_FAILED) {
+  if (((COP1_FPU *)cop1)->fpgprs == MAP_FAILED) {
     fprintf(stderr, "Could not map FPU FPGPRs \n");
     exit(errno);
   }
 
-
   // Map main memory
   (*state)->memory =
-      mmap(NULL, 4 * GiB_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+      mmap(NULL, 2 * GiB_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   // Check if main memory mapping succeded
   if ((*state)->memory == MAP_FAILED) {
@@ -147,11 +150,28 @@ void build_vm_state(VM_state **state, char *rom_name) {
     exit(errno);
   }
 
+  memory_base_addr = ((uintptr_t)(*state)->memory);
+
   // set adequate permissionns for RDRAM physical memory region
-  int mprot = mprotect((*state)->memory, 8 * MiB_SIZE, PROT_READ | PROT_WRITE |PROT_EXEC);
-  
+  int rdram_prot = mprotect((*state)->memory, RDRAM_SIZE,
+                       PROT_READ | PROT_WRITE | PROT_EXEC);
+
+  // Check if physical RDRAM memory region permissions setting succeeded
+  if (rdram_prot == -1) {
+    fprintf(stderr, "Could not set physical RDRAM memory region permissions\n");
+    exit(errno);
+  }
+  // set adequate permissionns for RSP DMEM physical memory region
+  int rsp_dmem_prot = mprotect((*state)->memory + RSP_DMEM_ADDR, RSP_DMEM_LEN,
+                       PROT_READ | PROT_WRITE | PROT_EXEC);
+
+  // Check if physical memory region permissions setting succeeded
+  if (rsp_dmem_prot == -1) {
+    fprintf(stderr, "Could not set physical RSP DMEM memory region permissions\n");
+    exit(errno);
+  }
   // Open rom File
-  rom_ptr = fopen(rom_name, "rb");
+  FILE* rom_ptr = fopen(rom_name, "rb");
 
   // Check if rom file is opened
   if (rom_ptr == NULL) {
@@ -169,32 +189,34 @@ void build_vm_state(VM_state **state, char *rom_name) {
   }
   // open rom File Descriptor
   (*state)->rom_fd = open(rom_name, O_RDONLY);
-
   // Check if rom file descriptor is opened
   if ((*state)->rom_fd == -1) {
     fprintf(stderr, "Could not open rom file descriptor '%s'\n", rom_name);
     exit(errno);
   }
   // Map rom file to somwwhere in host memory
-  (*state)->rom = mmap(NULL, rom_size, PROT_READ, MAP_PRIVATE, (*state)->rom_fd, 0L);
+  (*state)->rom =
+      mmap(NULL, rom_size, PROT_READ, MAP_PRIVATE, (*state)->rom_fd, 0L);
   // Check if rom mapping succeeded
   if ((*state)->rom == MAP_FAILED) {
     fprintf(stderr, "Could not map rom\n");
     exit(errno);
   }
-  //simulate the PIF ROM
+  // simulate the PIF ROM
   (*state)->gprs[11] = 0xFFFFFFFFA4000040;
   (*state)->gprs[20] = 0x0000000000000001;
   (*state)->gprs[22] = 0x000000000000003F;
   (*state)->gprs[29] = 0xFFFFFFFFA4001FF0;
-  (*state)->memory
-  memcpy();
-  fclose(rom_ptr);
+  ((COP0_SYS*)cop0)->sysregs[01] = 0x0000001F;
+  ((COP0_SYS*)cop0)->sysregs[12] = 0x34000000;
+  ((COP0_SYS*)cop0)->sysregs[15] = 0x00000B00;
+  ((COP0_SYS*)cop0)->sysregs[16] = 0x0006E463;
+  memcpy((*state)->memory+RSP_DMEM_ADDR, (*state)->rom, RSP_DMEM_LEN * sizeof(uint8_t));
+  //fclose(rom_ptr);
   return;
 }
-uint8_t rearrange(uint32_t instruction) {
-  return ((instruction & (0x00000007 << 12)) >> 7) |
-         ((instruction >> 2) & 0x1F);
+uint8_t rearrange(uint8_t instruction) {
+  return (uint8_t)(instruction >>2);
 }
 uint8_t rd(uint32_t instruction) { return (instruction & 0x00000F80) >> 7; }
 uint8_t rs1(uint32_t instruction) { return (instruction & 0x000F8000) >> 15; }
@@ -217,62 +239,28 @@ int32_t j_imm(uint32_t instruction) {
                    ((instruction >> 20) & 0x7fe));
 }
 bool funct7(uint32_t instruction) { return (instruction & 0x40000000) >> 31; }
-static inline __attribute__((always_inline)) void
-fetch_decode(VM_state *vm);
+static inline __attribute__((always_inline)) void fetch_decode(VM_state *vm);
 void HALT(VM_state *vm) {
-  printf("full instr %032bb %08hhX\n", *pc, *pc);
-  uint8_t instr = rearrange(*pc);
+  printf("full instr %032bb %08hhX\n", *(vm->pc),*(vm->pc));
+  uint8_t instr = rearrange(*(vm->pc));
   printf("rearranged instr %08bb %d \n", instr, instr);
-  printf("HALTED at addr  %08llX\n", ((uint8_t *)pc - mem));
-  munmap(mem, 2 * GiB_SIZE);
-  close(rom_fd);
-  fclose(rom_ptr);
-  free(x);
+  printf("HALTED at addr  %08llX\n", *(vm->pc) - *(vm->memory));
+  munmap((vm->memory), 2 * GiB_SIZE);
+  close(vm->rom_fd);
+  munmap(vm->gprs, GPRS_COUNT * sizeof(uint64_t));
   SDL_DestroyWindow(window_inner);
   SDL_Quit();
   exit(-3);
 };
 void catch_sigsegv(int sig, siginfo_t *info, void *ucontext) {
   ucontext_t *ctx = (ucontext_t *)ucontext;
-  // printf("\n Signal %d received", sig);
+  fprintf(stderr,"\n Signal %d received", sig);
   uintptr_t addr = (uintptr_t)(void *)info->si_addr;
-  if (addr > csr_addr && addr < (csr_addr + (CSR_COUNT * sizeof(uint32_t)))) {
-    fprintf(stderr, "Address %lX is in COP space\n",
-            (uintptr_t)((void *)info->si_addr - csr_addr));
-  } else {
-    // printf("\n at address %lx", addr);
-    uint32_t mmio_addr = (addr - io_addr);
-    // printf("\n at IO address %lx", mmio_addr);
-    switch (mmio_addr >> 30) {
-    case 1:
-    case 3:
-      switch (RWK_slot) {
-      case W_BYTE:
-        fprintf(stdout, "%c", (uint8_t)write_slot);
-        break;
-      default:
-        fprintf(stdout, "%c", (uint32_t)write_slot);
-      }
-      break;
-    case 2:
-      if (RWK_slot == W_BYTE || RWK_slot == W_HALF || RWK_slot == W_WORD) {
-        if (write_slot == 0x00005555) {
-          SDL_DestroyWindow(window_inner);
-          SDL_Quit();
-          exit(0);
-        }
-      }
-      break;
-    default:
-      close(rom_fd);
-      fclose(rom_ptr);
-      SDL_DestroyWindow(window_inner);
-      SDL_Quit();
-      fprintf(stderr, "Unknown write at io address %lx\n", io_addr);
-      fprintf(stderr, "Unknown write at address %lx\n", mmio_addr >> 30);
-      exit(-6);
-    }
-  }
+  SDL_DestroyWindow(window_inner);
+  SDL_Quit();
+  fprintf(stderr, "Unknown write at guest address %lx\n",addr - memory_base_addr);
+  fprintf(stderr, "Unknown write at host address %lx\n",addr);
+  exit(-6);
 #if __x86_64
   (ctx->uc_mcontext.gregs[16]) += 4;
 #elif __aarch64__
@@ -306,13 +294,29 @@ void (*decode_table[256])(VM_state *VM) = {
     HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT,
     HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT,
     HALT, HALT, HALT, HALT};
-static inline __attribute__((always_inline)) void
-fetch_decode(VM_state *vm) {
+static inline __attribute__((always_inline)) uint32_t addr_translation(uint32_t addr){
+  uint8_t segment = addr >> 28;
+  const uint32_t addr_table[16] = {0x00000000,0x00000000,0x00000000,0x00000000,
+                                  0x00000000,0x00000000,0x00000000,0x00000000, //KUSEG
+                                  0x80000000,0x80000000, //KSEG0
+                                  0xA0000000,0xA0000000, //KSEG1
+                                  0xC0000000,0xC0000000, //KSSEG
+                                  0xE0000000,0xE0000000 //KSEG3
+                                  };
+  fprintf(stdout, "SEGMENT %hhX\n", segment);
+  return addr - addr_table[segment];
+}
+static inline __attribute__((always_inline)) void fetch_decode(VM_state *vm) {
   // printf("full instr %032bb  %u", *pc, *pc);
   // printf("PC:%08llX INSTR:%08llX RE:%02llX\n", ((uint8_t *)pc - mem), *pc,
   //        rearrange(*pc));
   *(vm->gprs) = 0;
-  return (decode_table[rearrange(*(vm->pc))])(vm);
+  uint32_t virtual_addr = (uint32_t)(((uintptr_t)(vm->pc))-((uintptr_t)(vm->memory)));
+  uint32_t physical_addr = addr_translation(virtual_addr);
+  fprintf(stdout, "Physical addr:%08llX\n",physical_addr);
+  uint32_t instr = (uint32_t*)(vm->memory+physical_addr);
+  fprintf(stdout, "instr: %02llX", instr);
+  return (decode_table[rearrange(instr)])(vm);
 }
 void begin(VM_state *state, SDL_Window *window) {
   // printf("begin vm execution");
@@ -325,9 +329,7 @@ void begin(VM_state *state, SDL_Window *window) {
 #else
 
 #endif
-  state->pc = (uint32_t *)(state->memory + (RAM_ADDR + PRG_OFFSET));
-  // printf("full instr %032bb  %08hhX\n", *state->pc, *state->pc);
-  // uint8_t actual_instr = rearrange(*state->pc);
-  // printf("rearranged instr %08bb\n", actual_instr);
+  state->pc = (uint32_t *)(state->memory + INITIAL_PC + HEADER_SIZE);
+
   fetch_decode(state);
 }
