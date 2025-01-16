@@ -10,37 +10,23 @@
 #include <SDL2/SDL.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <linux/mman.h>
-#include <setjmp.h>
 #include <signal.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
-typedef enum { COP0_SYS_E, COP1_FPU_E, COP2_RCP_E } CPU_COP_Kind;
-typedef struct COP_Generic {
-  void *cop;
-  CPU_COP_Kind cpk;
-} COP_Generic;
-typedef struct COP0_SYS{
-  uint32_t *sysregs;
-} COP0_SYS;
-typedef struct COP1_FPU{
-  double *fpgprs;
-}COP1_FPU;
-typedef struct COP2_RCP{
-  uint32_t *rsp_gprs;
-}COP2_RCP;
+
+#include <sys/syscall.h>
+#include <sys/types.h>
 
 typedef struct VM_state {
-  uint32_t *pc;
-  uint64_t *gprs;
-  uint8_t *memory;
-  COP_Generic *cops;
+  uint64_t gprs[32];
+  uint32_t sys[32];
+  double fpu[32];
+  uint32_t rsp[32];
   int rom_fd;
   uint8_t *rom;
 } VM_state;

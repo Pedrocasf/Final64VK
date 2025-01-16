@@ -1,8 +1,10 @@
 //
 // Created by pedrostarling2000 on 7/23/23.
 //
-
+#include <setjmp.h>
+#include <linux/mman.h>
 #include "VR4300.h"
+#define _GNU_SOURCE
 SDL_Window *window_inner = NULL;
 const uint32_t KiB_SIZE = 1024;
 const uint32_t MiB_SIZE = 1024 * KiB_SIZE;
@@ -22,6 +24,7 @@ const uint32_t COP_COUNT = 3;
 const uint32_t COP0_SYS_REG_COUNT = 32;
 const uint32_t COP1_FPU_FPGPRS_COUNT = 32;
 const uint32_t COP2_RCP_GPRS_COUNT = 32;
+static sigjmp_buf trampoline;
 static uintptr_t memory_base_addr = 0;
 static uint32_t rom_size = 0;
 static uintptr_t io_addr = 0;
@@ -45,123 +48,31 @@ static ReadWriteKind RWK_slot = NONE;
 void catch_sigsegv(int sig, siginfo_t *info, void *ucontext);
 void build_vm_state(VM_state **state, char *rom_name) {
   // mmap VM State
-  *state = (VM_state *)mmap(NULL, sizeof(VM_state),
-                            PROT_READ | PROT_WRITE | PROT_EXEC,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if (state == MAP_FAILED) {
-    fprintf(stderr, "Could not map VM state \n");
-    exit(errno);
-  }
-  // mmap General Pourpose Registers
-  (*state)->gprs = (uint64_t *)mmap(NULL, sizeof(uint64_t) * GPRS_COUNT,
-                                    PROT_READ | PROT_WRITE | PROT_EXEC,
-                                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if ((*state)->gprs == MAP_FAILED) {
-    fprintf(stderr, "Could not map GPRs \n");
-    exit(errno);
-  }
+  *state = (VM_state *)calloc(1, sizeof(VM_state));
 
-  // mmap Coprocessors slots
-  (*state)->cops =
-      mmap(NULL, COP_COUNT * sizeof(COP_Generic), PROT_READ | PROT_WRITE,
-           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  // Check if COP slots mapping succeeded
-  if ((*state)->cops == MAP_FAILED) {
-    fprintf(stderr, "Could not map COPs memory\n");
-    exit(errno);
-  }
-  // mmap Coprocessor 0 System
-  (*state)->cops[0].cop = mmap(NULL, sizeof(COP0_SYS), PROT_READ | PROT_WRITE,
-                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
-  // Check if COP0 SYS mapping succeeded
-  if ((*state)->cops[0].cop == MAP_FAILED) {
-    fprintf(stderr, "Could not map COP0 SYS memory\n");
-    exit(errno);
-  }
-
-  // get COP0 SYS generic void poinnter
-  void *cop0 = (*state)->cops[0].cop;
-
-  // mmap COP0 SYS registers
-  ((COP0_SYS *)cop0)->sysregs =
-      mmap(NULL, COP0_SYS_REG_COUNT * sizeof(uint32_t), PROT_READ | PROT_WRITE,
-           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  // Check if COP0 SYS registers mapping succeeded
-  if (((COP0_SYS *)cop0)->sysregs == MAP_FAILED) {
-    fprintf(stderr, "Could not map COP0 SYS memory\n");
-    exit(errno);
-  }
-  // mmap Coprocessor 1 Floating Point Unit
-  (*state)->cops[1].cop = mmap(NULL, sizeof(COP1_FPU), PROT_READ | PROT_WRITE,
-                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
-  // Check if COP1 FPU mapping succeeded
-  if ((*state)->cops[1].cop == MAP_FAILED) {
-    fprintf(stderr, "Could not map COP1 FPU memory\n");
-    exit(errno);
-  }
-
-  // get COP1 FPU generic void poinnter
-  void *cop1 = (*state)->cops[1].cop;
-
-  // mmap Floating-point General Pourpose Registers
-  ((COP1_FPU *)cop1)->fpgprs = (double *)mmap(
-      NULL, sizeof(double) * COP1_FPU_FPGPRS_COUNT,
-      PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
-  // Check if COP1 FPU registers mapping succeeded
-  if (((COP1_FPU *)cop1)->fpgprs == MAP_FAILED) {
-    fprintf(stderr, "Could not map FPU FPGPRs \n");
-    exit(errno);
-  }
-
-  // mmap Coprocessor 2 Reality Co-Processor
-  (*state)->cops[2].cop = mmap(NULL, sizeof(COP2_RCP), PROT_READ | PROT_WRITE,
-                               MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
-  // Check if COP2 RCP mapping succeeded
-  if ((*state)->cops[2].cop == MAP_FAILED) {
-    fprintf(stderr, "Could not map COP2 RCP memory\n");
-    exit(errno);
-  }
-
-  // get COP2 RCP generic void poinnter
-  void *cop2 = (*state)->cops[2].cop;
-
-  // mmap RCP General Pourpose Registers
-  ((COP2_RCP *)cop2)->rsp_gprs = (Uint32 *)mmap(
-      NULL, sizeof(uint32_t) * COP2_RCP_GPRS_COUNT,
-      PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-
-  // Check if COP2 RCP registers mapping succeeded
-  if (((COP1_FPU *)cop1)->fpgprs == MAP_FAILED) {
-    fprintf(stderr, "Could not map FPU FPGPRs \n");
-    exit(errno);
-  }
-
-  // Map main memory
-  (*state)->memory =
+  /* Map main memory
+  uint32_t *memory =
       mmap(NULL, 2 * GiB_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   // Check if main memory mapping succeded
-  if ((*state)->memory == MAP_FAILED) {
+  if (memory == MAP_FAILED) {
     fprintf(stderr, "Could not map memory\n");
     exit(errno);
   }
-
-  memory_base_addr = ((uintptr_t)(*state)->memory);
-
+*/
   // set adequate permissionns for RDRAM physical memory region
-  int rdram_prot = mprotect((*state)->memory, RDRAM_SIZE,
-                       PROT_READ | PROT_WRITE | PROT_EXEC);
-
-  // Check if physical RDRAM memory region permissions setting succeeded
-  if (rdram_prot == -1) {
-    fprintf(stderr, "Could not set physical RDRAM memory region permissions\n");
+  int rdram_fd = memfd_create("rdram", 0);
+  if (rdram_fd == -1) {
+    fprintf(stderr, "Could not set create RDRAM file descriptor\n");
     exit(errno);
   }
-  // set adequate permissionns for RSP DMEM physical memory region
+  if (ftruncate(rdram_fd, RDRAM_SIZE) == -1){
+    fprintf(stderr, "Could not set size of RDRAM file descriptor\n");
+    exit(errno);
+  }
+  uint32_t *rdram = mmap(0, RDRAM_SIZE,
+                       PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, rdram_fd ,0);
+
   int rsp_dmem_prot = mprotect((*state)->memory + RSP_DMEM_ADDR, RSP_DMEM_LEN,
                        PROT_READ | PROT_WRITE | PROT_EXEC);
 
@@ -261,15 +172,7 @@ void catch_sigsegv(int sig, siginfo_t *info, void *ucontext) {
   fprintf(stderr, "Unknown write at guest address %lx\n",addr - memory_base_addr);
   fprintf(stderr, "Unknown write at host address %lx\n",addr);
   exit(-6);
-#if __x86_64
-  (ctx->uc_mcontext.gregs[16]) += 4;
-#elif __aarch64__
-  (ctx->uc_mcontext.pc) += 4;
-#elif __riscv
-  (ctx->uc_mcontext.__gregs[1]) += 4;
-#else
-#error "only x86_64, arm64 and RISC-V64 supported"
-#endif
+  siglongjmp(trampoline, true);
 }
 void (*decode_table[256])(VM_state *VM) = {
     HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT, HALT,
