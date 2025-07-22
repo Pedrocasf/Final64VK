@@ -20,7 +20,7 @@ int main(int argc, char *argv[]) {
     exit(-1);
   }
   // printf("Executable path: %s\n", argv[argc - 1]);
-  struct VM_state *VR4300_State = NULL;
+  VM_state *VR4300_State = NULL;
   build_vm_state(&VR4300_State, argv[argc - 1]);
   // printf("returned from state init\n");
   if (VR4300_State == NULL) {

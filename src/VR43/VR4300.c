@@ -2,7 +2,7 @@
 // Created by pedrostarling2000 on 7/23/23.
 //
 #include <setjmp.h>
-#include <linux/mman.h>
+#include <sys/mman.h>
 #include "VR4300.h"
 #define _GNU_SOURCE
 SDL_Window *window_inner = NULL;
@@ -118,10 +118,10 @@ void build_vm_state(VM_state **state, char *rom_name) {
   (*state)->gprs[20] = 0x0000000000000001;
   (*state)->gprs[22] = 0x000000000000003F;
   (*state)->gprs[29] = 0xFFFFFFFFA4001FF0;
-  ((COP0_SYS*)cop0)->sysregs[01] = 0x0000001F;
-  ((COP0_SYS*)cop0)->sysregs[12] = 0x34000000;
-  ((COP0_SYS*)cop0)->sysregs[15] = 0x00000B00;
-  ((COP0_SYS*)cop0)->sysregs[16] = 0x0006E463;
+  (*state)->sys[01] = 0x0000001F;
+  (*state)->sys[12] = 0x34000000;
+  (*state)->sys[15] = 0x00000B00;
+  (*state)->sys[16] = 0x0006E463;
   memcpy((*state)->memory+RSP_DMEM_ADDR, (*state)->rom, RSP_DMEM_LEN * sizeof(uint8_t));
   //fclose(rom_ptr);
   return;
