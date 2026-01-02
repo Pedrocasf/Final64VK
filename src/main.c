@@ -7,7 +7,7 @@ const int SCREEN_HEIGHT = 256;
 SDL_Window *window_outer = NULL;
 int main(int argc, char *argv[]) {
 
-  if (SDL_Init(SDL_INIT_EVERYTHING) == 0)
+  if (SDL_Init(SDL_INIT_VIDEO) == 0)
     window_outer = SDL_CreateWindow("Tutorial SDL 2", 50, 50, SCREEN_WIDTH,
                                     SCREEN_HEIGHT, 0);
   else {
@@ -28,9 +28,10 @@ int main(int argc, char *argv[]) {
     exit(-2);
   }
   if (window_outer != NULL) {
-    while (!SDL_QuitRequested()) {
-      begin(VR4300_State, window_outer);
-    }
+
+      while (!SDL_QuitRequested()) {
+          run_instr(VR4300_State, window_outer);
+      }
     SDL_DestroyWindow(window_outer);
     SDL_Quit();
   } else {

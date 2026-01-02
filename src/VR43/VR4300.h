@@ -23,15 +23,22 @@
 #include <sys/types.h>
 
 typedef struct VM_state {
-  uint64_t gprs[32];
+  uint32_t gprs[32];
   uint32_t sys[32];
   double fpu[32];
   uint32_t rsp[32];
   int rom_fd;
-  uint8_t *rom;
+  int rsp_dmem_fd;
+  int rdram_fd;
+  uint32_t cart_size;
+  void* rsp_dmem_mem[5];
+  void* cart_mem[5];
+  void* rdram[5];
+  void* pc;
 } VM_state;
 
 void build_vm_state(VM_state **state, char *rom_name);
 
 void begin(VM_state *state, SDL_Window *window);
+void run_instr(VM_state *state, SDL_Window *window);
 #endif // ESQUELETOVM_RV32I_H

@@ -6,5 +6,6 @@ include_directories(${SDL2_INCLUDE_DIRS})
 add_executable(${PROJECT_NAME}
         src/main.c
         src/VR43/VR4300.c
+        #src/scheduler/scheduler.c
 )
 target_link_libraries(${PROJECT_NAME} ${SDL2_LIBRARIES})
