@@ -2,8 +2,8 @@
 // Created by pedrostarling2000 on 7/23/23.
 //
 
-#ifndef ESQUELETOVM_RV32I_H
-#define ESQUELETOVM_RV32I_H
+#ifndef VR4300_H
+#define VR4300_H
 #ifdef _WIN32
 #define _CRT_SECURE_NO_WARNINGS
 #endif
@@ -41,4 +41,4 @@ void build_vm_state(VM_state **state, char *rom_name);
 
 void begin(VM_state *state, SDL_Window *window);
 void run_instr(VM_state *state, SDL_Window *window);
-#endif // ESQUELETOVM_RV32I_H
+#endif // VR4300_H

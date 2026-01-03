@@ -2,6 +2,8 @@
 // Created by pedrostarling2000 on 7/23/23.
 //
 #define _GNU_SOURCE
+#include <stdint.h>
+#include <stdio.h>
 #include <setjmp.h>
 #include <sys/mman.h>
 #include "VR4300.h"
@@ -61,6 +63,7 @@ void map_rom(VM_state **state, char *rom_name){
     fseek(rom_ptr, 0L, SEEK_END);
     (*state)->cart_size = ftell(rom_ptr);
     fseek(rom_ptr, 0L, SEEK_SET);
+    rom_size = (*state)->cart_size;
     // Check if rom size is smaller than MAX_ROM_SIZE
     if (rom_size > MAX_ROM_SIZE) {
       fprintf(stderr, "rom file is too big\n");
@@ -77,11 +80,12 @@ void map_rom(VM_state **state, char *rom_name){
     for(int i = 0;i<5;i++){
         (*state)->cart_mem[i] =
             mmap((void *)(intptr_t)CART_ADDRS[i], rom_size, PROT_READ, MAP_PRIVATE, (*state)->rom_fd, 0L);
-        if((*state)->cart_mem == NULL){
+        if((*state)->cart_mem[i] == NULL){
             fprintf(stderr, "Could not map cart mem mirror %x at addr %x",i,CART_ADDRS[i]);
+        }else{
+            fprintf(stderr, "Mapped cart mem mirror %x at addr %x\n",i,CART_ADDRS[i]);
         }
     }
-
 }
 void map_rdram(VM_state **state){
     int rdram_fd = memfd_create("rdram", 0);
@@ -89,18 +93,23 @@ void map_rdram(VM_state **state){
       fprintf(stderr, "Could not set create RDRAM file descriptor\n");
       exit(errno);
     }
+    fprintf(stderr, "Createed RDRAM file descriptor\n");
 
     if (ftruncate(rdram_fd, RDRAM_SIZE) == -1){
       fprintf(stderr, "Could not set size of RDRAM file descriptor\n");
       exit(errno);
     }
+    fprintf(stderr, "size of RDRAM file descriptor set\n");
     (*state)->rdram_fd = rdram_fd;
-    for(int i = 0;i<5;i++){
-        (*state)->rdram[i]= mmap((void *)(intptr_t)RDRAM_ADDRS[i], RDRAM_SIZE,
-                             PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, rdram_fd ,0);
+    for(int i = 1;i<5;i++){
+        (*state)->rdram[i]
+            = mmap((void *)(intptr_t)RDRAM_ADDRS[i], RDRAM_SIZE,
+                             PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_FIXED, rdram_fd ,0);
         if((*state)-> rdram[i] == NULL){
             fprintf(stderr, "Could not map rdram mirror %x, addr %x\n", i, RDRAM_ADDRS[i]);
             exit(errno);
+        }else{
+            fprintf(stderr,"RDRAM addr %x mapped\n", (uintptr_t)(*state)-> rdram[i]);
         }
     }
 }
@@ -115,15 +124,25 @@ void map_rsp_dmem(VM_state **state){
       exit(errno);
     }
     for(int i = 0;i<5 ;i++){
-        (*state)->rsp_dmem_mem[i] = mmap((void *)(intptr_t)RSP_DMEM_ADDRS[i], RSP_DMEM_LEN, PROT_READ | PROT_WRITE, MAP_PRIVATE, (*state)->rsp_dmem_fd, 0L);
+        (*state)->rsp_dmem_mem[i] = mmap((void *)(uintptr_t)RSP_DMEM_ADDRS[i], RSP_DMEM_LEN,
+            PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_FIXED, rsp_dmem_fd, 0L);
+        if((*state)->rsp_dmem_mem[i] == NULL){
+            fprintf(stderr, "Could not map rsp dmem mirror %x, addr %x\n", i, RDRAM_ADDRS[i]);
+            exit(errno);
+        }else{
+            fprintf(stderr,"Rsp dmem %x mapped\n", (uintptr_t)(*state)->rsp_dmem_mem[i]);
+        }
     }
 }
 void build_vm_state(VM_state **state, char *rom_name) {
   *state = (VM_state *)calloc(1, sizeof(VM_state));
+  fprintf(stderr, "allocated state\n");
   map_rom(state, rom_name);
+  fprintf(stderr, "rom mapped\n");
   map_rdram(state);
+  fprintf(stderr, "rdram mapped\n");
   map_rsp_dmem(state);
-
+  fprintf(stderr, "rsp dmem mapped\n");
 
   // simulate the PIF ROM
   (*state)->gprs[11] = 0xA4000040;
@@ -134,8 +153,10 @@ void build_vm_state(VM_state **state, char *rom_name) {
   (*state)->sys[12] = 0x34000000;
   (*state)->sys[15] = 0x00000B00;
   (*state)->sys[16] = 0x0006E463;
-  memcpy(&RSP_DMEM_ADDRS[0], &CART_ADDRS[0] , RSP_DMEM_LEN * sizeof(uint8_t));
-  (*state)->pc = (void *)(intptr_t)0xBFC00000;
+  fprintf(stderr, "pif simulated\n");
+  memcpy((*state)->rsp_dmem_mem[0], (*state)->cart_mem[0], RSP_DMEM_LEN);
+  fprintf(stderr, "IPL3 copied\n");
+  //(*state)->pc = (void *)(intptr_t)0xBFC00000;
   //fclose(rom_ptr);
   return;
 }
